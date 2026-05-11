@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ポップな くだもの たしざん</title>
+    <style>
+        body {
+            display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+            min-height: 100vh; margin: 0; padding-top: 40px; background-color: #f0f9ff;
+            font-family: 'Helvetica Neue', Arial, "Hiragino Kaku Gothic ProN", sans-serif;
+            touch-action: manipulation; user-select: none;
+        }
+
+        .formula-container {
+            display: flex; align-items: center; gap: 12px; margin-bottom: 50px;
+            font-size: 45px; font-weight: bold; color: #2c3e50;
+        }
+
+        .input-box {
+            width: 85px; height: 85px; border: 4px solid #bdc3c7; border-radius: 18px;
+            display: flex; align-items: center; justify-content: center; background-color: white; cursor: pointer;
+            box-shadow: 0 4px #dfe6e9;
+        }
+
+        .input-box.red-text { color: #ff5e57; border-color: #ff5e57; }
+        .input-box.blue-text { color: #ffca28; border-color: #ffca28; }
+        .input-box.ans-text { background-color: #55efc4; border-color: #00b894; color: #fff; }
+
+        .container {
+            display: flex; gap: 6px; padding: 25px; background: white;
+            border-radius: 25px; box-shadow: 0 8px 15px rgba(0,0,0,0.05);
+        }
+
+        .block-unit { display: flex; flex-direction: column; align-items: center; width: 65px; }
+
+        .num-label-top { height: 35px; font-size: 24px; font-weight: bold; color: #555; margin-bottom: 5px; }
+        .block {
+            width: 60px; height: 60px; border: 2px solid #eee; background-color: #f9f9f9;
+            border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 38px;
+            transition: transform 0.1s;
+        }
+        .num-label-bottom { height: 35px; font-size: 22px; font-weight: bold; color: #b2bec3; margin-top: 8px; }
+
+        .is-red { background-color: #fff2f2; border-color: #ff7675; transform: scale(1.05); }
+        .is-blue { background-color: #fff9db; border-color: #ffeaa7; transform: scale(1.05); }
+
+        .controls { margin-top: 50px; }
+        .reset-btn {
+            padding: 18px 50px; font-size: 22px; background-color: #0984e3; color: white;
+            border: none; border-radius: 50px; cursor: pointer; box-shadow: 0 5px #0769b5;
+            font-weight: bold;
+        }
+        .reset-btn:active { box-shadow: 0 1px #0769b5; transform: translateY(4px); }
+    </style>
+</head>
+<body>
+
+    <div class="formula-container">
+        <div class="input-box red-text" id="box1" onclick="confirmNum(1)"></div>
+        <span>＋</span>
+        <div class="input-box blue-text" id="box2" onclick="confirmNum(2)"></div>
+        <span>＝</span>
+        <div class="input-box ans-text" id="boxAns" onclick="showAns()"></div>
+    </div>
+
+    <div class="container" id="stage"></div>
+
+    <div class="controls">
+        <!-- ボタンのテキストを変更しました -->
+        <button class="reset-btn" onclick="resetGame()">はじめから</button>
+    </div>
+
+    <script>
+        const stage = document.getElementById('stage');
+        const box1 = document.getElementById('box1');
+        const box2 = document.getElementById('box2');
+        const boxAns = document.getElementById('boxAns');
+
+        let mode = 'red'; 
+        let redCount = 0;
+        let blueCount = 0;
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const now = audioCtx.currentTime;
+
+            if (type === 'apple') { 
+                const osc = createOsc(523.25, 0.15, 'sine', now); 
+                osc.frequency.exponentialRampToValueAtTime(880, now + 0.05);
+                osc.frequency.exponentialRampToValueAtTime(523.25, now + 0.15);
+            } else if (type === 'banana') { 
+                const osc = createOsc(300, 0.4, 'sine', now);
+                osc.frequency.quadraticCurveTo(600, now + 0.1, 150, now + 0.4);
+            } else if (type === 'confirm') { 
+                createOsc(1200, 0.05, 'square', now, 0.05);
+            } else if (type === 'correct') { 
+                [880, 1174, 1318, 1760].forEach((f, i) => createOsc(f, 0.3, 'sine', now + i * 0.05, 0.1));
+            }
+        }
+
+        function createOsc(freq, duration, type, startTime, vol = 0.2) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, startTime);
+            gain.gain.setValueAtTime(vol, startTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+            osc.connect(gain).connect(audioCtx.destination);
+            osc.start(startTime);
+            osc.stop(startTime + duration);
+            return osc;
+        }
+
+        function init() {
+            stage.innerHTML = '';
+            for (let i = 1; i <= 10; i++) {
+                const unit = document.createElement('div');
+                unit.className = 'block-unit';
+                unit.innerHTML = `
+                    <div class="num-label-top" id="T${i}"></div>
+                    <div class="block" id="B${i}" onclick="tapBlock(${i})"></div>
+                    <div class="num-label-bottom" id="L${i}"></div>
+                `;
+                stage.appendChild(unit);
+            }
+        }
+
+        function tapBlock(idx) {
+            if (mode === 'locked') return; 
+            const totalNow = redCount + blueCount;
+
+            if (mode === 'red') {
+                if (idx === redCount + 1 && redCount < 10) {
+                    redCount++;
+                    const b = document.getElementById('B'+idx);
+                    b.classList.add('is-red');
+                    b.innerText = '🍎';
+                    document.getElementById('T'+idx).innerText = redCount;
+                    document.getElementById('L'+idx).innerText = redCount;
+                    playSound('apple');
+                } else if (idx === redCount && redCount > 0) {
+                    const b = document.getElementById('B'+idx);
+                    b.classList.remove('is-red');
+                    b.innerText = '';
+                    document.getElementById('T'+idx).innerText = '';
+                    document.getElementById('L'+idx).innerText = '';
+                    redCount--;
+                }
+            } else if (mode === 'blue') {
+                if (idx === totalNow + 1 && totalNow < 10) {
+                    blueCount++;
+                    const newTotal = redCount + blueCount;
+                    const b = document.getElementById('B'+idx);
+                    b.classList.add('is-blue');
+                    b.innerText = '🍌';
+                    document.getElementById('T'+idx).innerText = blueCount;
+                    document.getElementById('L'+idx).innerText = newTotal;
+                    playSound('banana');
+                } else if (idx === totalNow && blueCount > 0) {
+                    const b = document.getElementById('B'+idx);
+                    b.classList.remove('is-blue');
+                    b.innerText = '';
+                    document.getElementById('T'+idx).innerText = '';
+                    document.getElementById('L'+idx).innerText = '';
+                    blueCount--;
+                }
+            }
+        }
+
+        function confirmNum(num) {
+            if (num === 1 && redCount > 0) {
+                box1.innerText = redCount;
+                mode = 'blue'; 
+                playSound('confirm');
+            } else if (num === 2 && blueCount > 0) {
+                box2.innerText = blueCount;
+                mode = 'locked'; 
+                playSound('confirm');
+            }
+        }
+
+        function showAns() {
+            if (box1.innerText !== "" && box2.innerText !== "") {
+                boxAns.innerText = redCount + blueCount;
+                playSound('correct');
+            }
+        }
+
+        function resetGame() {
+            redCount = 0;
+            blueCount = 0;
+            mode = 'red';
+            box1.innerText = '';
+            box2.innerText = '';
+            boxAns.innerText = '';
+            init();
+        }
+
+        init();
+    </script>
+</body>
+</html>
